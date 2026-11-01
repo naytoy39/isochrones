@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Зоны доставки «Печь на Баумана» — Казань</title>
+<meta name="description" content="Интерактивная веб-карта трёх зон доставки пиццерии в Казани на подложке OpenStreetMap">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Golos+Text:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+/* Макет: панель управления слева, карта справа; на телефоне карта сверху, панель снизу */
+:root{
+  --bg:#f3f1ec; --panel:#fbfaf7; --fg:#22201c; --muted:#6b665d; --line:#dcd6cb;
+  --z1:#b4500e; --z2:#e08a1e; --z3:#e8b44a; --out:#8a8378;
+  --ok:#2f7a4f; --warn:#b4500e; --accent:#b4500e;
+  --f-display:"Unbounded","Golos Text",system-ui,sans-serif;
+  --f-body:"Golos Text",system-ui,-apple-system,"Segoe UI",sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#171614; --panel:#1e1c19; --fg:#efebe3; --muted:#a39d92; --line:#36322c;
+  --z1:#e0732a; --z2:#e7a03c; --z3:#e9c77c;
+  --ok:#5fb884; --warn:#e7843d; --accent:#e7843d; color-scheme:dark}
+  .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.85) contrast(.9) saturate(.6)}
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:15px;line-height:1.45}
+.app{display:grid;grid-template-columns:380px 1fr;height:100%}
+.panel{background:var(--panel);border-right:1px solid var(--line);overflow-y:auto;
+  padding:22px 20px 28px max(20px,env(safe-area-inset-left));
+  display:flex;flex-direction:column;gap:22px;min-width:0}
+.mapwrap{position:relative;min-width:0}
+#map{position:absolute;inset:0}
+
+.brand small{display:block;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.brand h1{font-family:var(--f-display);font-weight:700;font-size:22px;line-height:1.15;margin:0;text-wrap:balance}
+.brand p{margin:8px 0 0;color:var(--muted);font-size:13.5px}
+.label{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:0 0 8px;font-weight:600}
+
+.zones{display:flex;flex-direction:column;gap:2px;margin:0;padding:0;list-style:none}
+.zone{display:grid;grid-template-columns:14px 1fr auto;gap:4px 12px;align-items:start;padding:11px 10px;border-radius:8px;cursor:pointer;border:1px solid transparent}
+.zone:hover{background:var(--bg)}
+.zone.active{border-color:var(--line);background:var(--bg)}
+.zone:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.sw{width:14px;height:14px;border-radius:3px;margin-top:3px}
+.zone b{font-weight:600}
+.zone .time{font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.zone .terms{grid-column:2/4;font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.zone .terms span{color:var(--fg)}
+.zone .area{grid-column:2/4;font-size:12px;color:var(--muted)}
+
+.sum{display:flex;flex-direction:column;gap:10px}
+.sumrow{display:flex;align-items:baseline;gap:10px}
+#sum{font-family:var(--f-display);font-size:24px;font-weight:500;width:100%;min-width:0;padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);font-variant-numeric:tabular-nums}
+#sum:focus{outline:2px solid var(--accent);outline-offset:1px}
+.rub{font-family:var(--f-display);font-size:20px;color:var(--muted)}
+input[type=range]{width:100%;accent-color:var(--accent)}
+
+.places{display:flex;flex-wrap:wrap;gap:6px}
+.places button{font:inherit;font-size:13px;padding:6px 11px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--fg);cursor:pointer}
+.places button:hover{border-color:var(--muted)}
+.places button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+
+.result{border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;background:var(--bg)}
+.result .where{display:flex;align-items:center;justify-content:space-between;gap:8px;font-weight:600}
+.pill{font-size:11.5px;font-weight:600;letter-spacing:.04em;padding:3px 9px;border-radius:999px;color:#fff;white-space:nowrap}
+.pill.dark{color:#2a1a05}
+.result dl{display:grid;grid-template-columns:1fr auto;gap:5px 12px;margin:0;font-variant-numeric:tabular-nums;font-size:14px}
+.result dt{color:var(--muted)}
+.result dd{margin:0;text-align:right}
+.verdict{font-size:14px;padding-top:10px;border-top:1px dashed var(--line)}
+.verdict.ok{color:var(--ok)} .verdict.no{color:var(--warn)}
+.hint{font-size:12.5px;color:var(--muted);margin:0}
+.author{font-size:12px;color:var(--muted);margin:0;padding-top:12px;border-top:1px solid var(--line)}
+
+/* Leaflet под палитру страницы */
+.leaflet-container{font-family:var(--f-body);background:var(--bg)}
+.leaflet-bar{border:1px solid var(--line)!important;border-radius:8px;overflow:hidden}
+.leaflet-bar a{background:var(--panel);color:var(--fg);border-bottom-color:var(--line)}
+.leaflet-bar a:hover{background:var(--bg)}
+.leaflet-control-attribution{background:color-mix(in srgb,var(--panel) 85%,transparent)!important;color:var(--muted)}
+.leaflet-control-attribution a{color:var(--fg)}
+.lbl-home{font-family:var(--f-display);font-size:12px;font-weight:700;color:var(--fg);background:var(--panel);padding:4px 8px;border-radius:6px;border:1px solid var(--line);box-shadow:none}
+.lbl-home::before{display:none}
+.legend{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12px;color:var(--fg);display:flex;flex-direction:column;gap:4px}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+
+@media (max-width:760px){
+  .app{grid-template-columns:1fr;grid-template-rows:56vh auto;height:auto}
+  .mapwrap{height:56vh}
+  .panel{border-right:0;border-top:1px solid var(--line);overflow:visible;
+    padding:22px max(16px,env(safe-area-inset-right)) 28px max(16px,env(safe-area-inset-left))}
+}
+@media (prefers-reduced-motion:reduce){.leaflet-zoom-anim .leaflet-zoom-animated{transition:none}}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="panel">
+    <div class="brand">
+      <small>Казань · доставка</small>
+      <h1>Печь на Баумана</h1>
+      <p>Пиццерия на ул. Баумана, 44. Кликните по карте или выберите место, чтобы узнать условия доставки.</p>
+    </div>
+
+    <section>
+      <p class="label">Зоны доставки</p>
+      <ul class="zones" id="zones"></ul>
+    </section>
+
+    <section class="sum">
+      <p class="label" style="margin:0"><label for="sum">Сумма заказа</label></p>
+      <div class="sumrow"><input id="sum" type="number" min="0" step="50" value="1500" inputmode="numeric"><span class="rub">₽</span></div>
+      <input id="sumRange" type="range" min="0" max="5000" step="50" value="1500" aria-label="Сумма заказа, ползунок">
+    </section>
+
+    <section>
+      <p class="label">Быстрый выбор</p>
+      <div class="places" id="places"></div>
+    </section>
+
+    <section class="result" id="result" aria-live="polite"></section>
+
+    <p class="hint">Пиццерия вымышленная, границы зон приблизительные.</p>
+    <p class="author">Автор: Иванов Михаил (гр 03-370)</p>
+  </aside>
+  <div class="mapwrap"><div id="map" aria-label="Карта зон доставки по Казани"></div></div>
+</div>
+
+<script>
+// ===== Данные =====
+// Точка ресторана [широта, долгота]
+const HOME = [55.7905, 49.1150];
+
+// Зоны: внешние контуры [широта, долгота]. Зоны вложены друг в друга:
+// на карте каждая следующая рисуется кольцом (с вырезом предыдущей).
+const ZONES = [
+  { id: 1, name: "Зона 1 · Центр", time: "30–40 мин", min: 700, fee: 0, freeFrom: 0, color: "--z1",
+    area: "Вахитовский район",
+    poly: [[55.806,49.078],[55.809,49.110],[55.807,49.140],[55.797,49.162],[55.781,49.167],[55.766,49.152],[55.763,49.122],[55.772,49.092]] },
+  { id: 2, name: "Зона 2 · Ближняя", time: "45–60 мин", min: 1200, fee: 150, freeFrom: 2000, color: "--z2",
+    area: "Ново-Савиновский, Советский, Приволжский",
+    poly: [[55.832,49.055],[55.842,49.108],[55.838,49.170],[55.817,49.212],[55.790,49.228],[55.760,49.217],[55.735,49.182],[55.728,49.140],[55.742,49.098],[55.775,49.060]] },
+  { id: 3, name: "Зона 3 · Дальняя", time: "60–80 мин", min: 2000, fee: 300, freeFrom: 3500, color: "--z3",
+    area: "Авиастроительный, Московский, Кировский, Азино, Дербышки",
+    poly: [[55.882,49.015],[55.897,49.100],[55.888,49.180],[55.862,49.245],[55.832,49.285],[55.792,49.300],[55.752,49.282],[55.712,49.232],[55.692,49.165],[55.712,49.098],[55.762,49.020],[55.822,48.978]] }
+];
+
+// Места для быстрого выбора
+const PLACES = [
+  ["Ж/д вокзал",[55.7880,49.0995]], ["Кремль",[55.7986,49.1056]], ["Казань Арена",[55.8211,49.1610]],
+  ["Горки",[55.765,49.175]], ["Азино",[55.755,49.212]], ["МЕГА",[55.7428,49.2185]],
+  ["Дербышки",[55.858,49.228]], ["Соцгород",[55.865,49.085]], ["Высокая Гора",[55.905,49.300]]
+];
+
+// ===== Утилиты =====
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const fmt = n => n.toLocaleString("ru-RU") + " ₽";
+function inPoly([y, x], poly) {
+  let c = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [yi, xi] = poly[i], [yj, xj] = poly[j];
+    if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c;
+  }
+  return c;
+}
+const zoneOf = p => ZONES.find(z => inPoly(p, z.poly)) || null;
+
+// ===== Карта =====
+const map = L.map("map", { zoomControl: false, minZoom: 9, maxZoom: 18 }).setView([55.792, 49.15], 11);
+L.control.zoom({ position: "topright" }).addTo(map);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 19,
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">участники OpenStreetMap</a>'
+}).addTo(map);
+
+const zoneLayers = ZONES.map((z, i) => {
+  const rings = i === 0 ? [z.poly] : [z.poly, ZONES[i - 1].poly];
+  const layer = L.polygon(rings, { weight: 2, fillOpacity: .3 }).addTo(map);
+  layer.bindTooltip(`${z.name}<br>от ${fmt(z.min)} · ${z.time}`, { sticky: true });
+  layer.on("click", e => setPick([e.latlng.lat, e.latlng.lng], "", false));
+  layer._zone = z;
+  return layer;
+});
+
+L.circleMarker(HOME, { radius: 9, weight: 3, color: "#fff", fillColor: "#22201c", fillOpacity: 1 })
+  .addTo(map)
+  .bindTooltip("Печь на Баумана", { permanent: true, direction: "left", offset: [-12, 0], className: "lbl-home" });
+
+const legend = L.control({ position: "bottomleft" });
+legend.onAdd = () => {
+  const d = L.DomUtil.create("div", "legend");
+  d.innerHTML = ZONES.map(z => `<div><i style="background:var(${z.color})"></i>${z.name}</div>`).join("");
+  return d;
+};
+legend.addTo(map);
+
+let pick = null, pickLL = null, pickName = "", activeZone = null;
+
+function paint() {
+  zoneLayers.forEach(l => {
+    const c = css(l._zone.color), act = activeZone === l._zone.id;
+    l.setStyle({ color: c, fillColor: c, weight: act ? 4 : 2, fillOpacity: activeZone && !act ? .1 : .3 });
+  });
+  document.querySelectorAll(".sw").forEach(s => s.style.background = css(s.dataset.c));
+}
+
+function renderZones() {
+  const ul = document.getElementById("zones");
+  ul.innerHTML = ZONES.map(z => `<li class="zone${activeZone === z.id ? " active" : ""}" tabindex="0" data-id="${z.id}">
+    <span class="sw" data-c="${z.color}"></span><b>${z.name}</b><span class="time">${z.time}</span>
+    <span class="terms">от <span>${fmt(z.min)}</span> · доставка ${z.fee ? `<span>${fmt(z.fee)}</span>, бесплатно от <span>${fmt(z.freeFrom)}</span>` : "<span>бесплатно</span>"}</span>
+    <span class="area">${z.area}</span></li>`).join("");
+  ul.querySelectorAll(".zone").forEach(li => {
+    const go = () => {
+      const z = ZONES.find(x => x.id == li.dataset.id);
+      activeZone = activeZone === z.id ? null : z.id;
+      renderZones(); paint();
+      if (activeZone) map.flyToBounds(L.latLngBounds(z.poly), { padding: [30, 30], duration: .6 });
+    };
+    li.onclick = go;
+    li.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } };
+  });
+}
+
+function renderResult() {
+  const box = document.getElementById("result");
+  const sum = Math.max(0, +document.getElementById("sum").value || 0);
+  if (!pickLL) { box.innerHTML = `<p class="hint">Выберите точку на карте.</p>`; return; }
+  const where = pickName || `${pickLL[0].toFixed(4)}, ${pickLL[1].toFixed(4)}`;
+  const z = zoneOf(pickLL);
+  if (!z) {
+    box.innerHTML = `<div class="where">${where}<span class="pill" style="background:var(--out)">Вне зон</span></div>
+      <p class="verdict no" style="border:0;padding:0">Сюда не доставляем. Заказ можно забрать самовывозом на Баумана, 44.</p>`;
+    return;
+  }
+  const fee = z.freeFrom && sum >= z.freeFrom ? 0 : z.fee;
+  let verdict;
+  if (sum < z.min) verdict = `<div class="verdict no">Добавьте ещё ${fmt(z.min - sum)}: минимальный заказ в этой зоне ${fmt(z.min)}.</div>`;
+  else if (fee) verdict = `<div class="verdict ok">Доставим. До бесплатной доставки не хватает ${fmt(z.freeFrom - sum)}.</div>`;
+  else verdict = `<div class="verdict ok">Доставим бесплатно.</div>`;
+  box.innerHTML = `<div class="where">${where}<span class="pill${z.id === 3 ? " dark" : ""}" style="background:var(${z.color})">${z.name.split(" · ")[0]}</span></div>
+    <dl><dt>Время</dt><dd>${z.time}</dd><dt>Минимальный заказ</dt><dd>${fmt(z.min)}</dd>
+    <dt>Доставка</dt><dd>${fee ? fmt(fee) : "0 ₽"}</dd><dt><b style="color:var(--fg)">Итого</b></dt><dd><b>${fmt(sum + fee)}</b></dd></dl>${verdict}`;
+}
+
+function setPick(ll, name, fly) {
+  pickLL = ll; pickName = name || "";
+  if (!pick) pick = L.marker(ll).addTo(map); else pick.setLatLng(ll);
+  renderResult();
+  if (fly && !map.getBounds().pad(-.1).contains(ll)) map.flyTo(ll, Math.max(map.getZoom(), 12), { duration: .6 });
+}
+map.on("click", e => setPick([e.latlng.lat, e.latlng.lng], "", false));
+
+const sumEl = document.getElementById("sum"), rangeEl = document.getElementById("sumRange");
+sumEl.oninput = () => { rangeEl.value = Math.min(5000, +sumEl.value || 0); renderResult(); };
+rangeEl.oninput = () => { sumEl.value = rangeEl.value; renderResult(); };
+
+document.getElementById("places").innerHTML =
+  PLACES.map((p, i) => `<button type="button" data-i="${i}">${p[0]}</button>`).join("");
+document.querySelectorAll("#places button").forEach(b =>
+  b.onclick = () => { const p = PLACES[b.dataset.i]; setPick(p[1], p[0], true); });
+
+renderZones(); paint(); setPick(PLACES[2][1], PLACES[2][0], false);
+matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", paint);
+if (window.innerWidth <= 760) map.setView([55.795, 49.15], 10);
+</script>
+</body>
+</html>
